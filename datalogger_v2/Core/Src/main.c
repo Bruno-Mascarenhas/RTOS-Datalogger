@@ -85,13 +85,14 @@ static void MX_USART2_UART_Init(void);
 
 /* USER CODE BEGIN PFP */
 
+
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
 uint16_t ADC_VAL;
-int Corrente;
+float Corrente;
 
 xTaskHandle ADC_Task_Handler;
 xTaskHandle Corrente_Task_Handler;
@@ -99,9 +100,52 @@ xTaskHandle SDCARD_Task_Handler;
 
 xSemaphoreHandle Corrente_SEM;
 
-void ADC_Task (void *argument);
-void Corrente_Task (void *argument);
-void SDCARD_Task (void *argument);
+
+void ADC_Task (void *argument)
+{
+	while (1)
+	{
+		HAL_ADC_Start(&hadc1);
+		HAL_ADC_PollForConversion(&hadc1, 10);
+		ADC_VAL = HAL_ADC_GetValue(&hadc1);
+		HAL_ADC_Stop(&hadc1);
+
+		vTaskDelay(500);
+	}
+}
+void Corrente_Task (void *argument)
+{
+	while (1)
+	{
+		if (xSemaphoreTake(Corrente_SEM, 2500) != pdTRUE)
+		{
+			HAL_UART_Transmit(&huart2, (uint8_t *) "Nao foi possivel receber o semaforo\n", 28, 100);
+		}
+
+		else
+		{
+			Corrente;
+		}
+	}
+}
+void SDCARD_Task (void *argument)
+{
+	int indx=1;
+	while (1)
+	{
+		char *buffer = pvPortMalloc(50*sizeof(char));
+		Mount_SD("/");
+		sprintf (buffer, "%d. Corrente = %f A\n",indx, Corrente);
+		Update_File("CORRENTE.TXT", buffer);
+		vPortFree(buffer);
+		Unmount_SD("/");
+
+		indx++;
+
+		vTaskDelay(1000);
+	}
+}
+
 
 /* USER CODE END 0 */
 
@@ -150,12 +194,13 @@ int main(void)
 
   Corrente_SEM = xSemaphoreCreateBinary();
 
+
   xTaskCreate(Corrente_Task, "Corrente", 128, NULL, 1, &Corrente_Task_Handler);
   xTaskCreate(ADC_Task, "ADC", 128, NULL, 1, &ADC_Task_Handler);
   xTaskCreate(SDCARD_Task, "SD", 128, NULL, 1, &SDCARD_Task_Handler);
 
-  HAL_TIM__Base_Start(&htim7);
-  HAL_TIM__Base_Start_IT(&htim1);
+  HAL_TIM_Base_Start(&htim7);
+  HAL_TIM_Base_Start_IT(&htim1);
 
   vTaskStartScheduler();
 
