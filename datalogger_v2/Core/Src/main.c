@@ -1,27 +1,26 @@
 /* USER CODE BEGIN Header */
 /**
-  ******************************************************************************
-  * @file           : main.c
-  * @brief          : Main program body
-  ******************************************************************************
-  * @attention
-  *
-  * <h2><center>&copy; Copyright (c) 2021 STMicroelectronics.
-  * All rights reserved.</center></h2>
-  *
-  * This software component is licensed by ST under Ultimate Liberty license
-  * SLA0044, the "License"; You may not use this file except in compliance with
-  * the License. You may obtain a copy of the License at:
-  *                             www.st.com/SLA0044
-  *
-  ******************************************************************************
-  */
+ ******************************************************************************
+ * @file           : main.c
+ * @brief          : Main program body
+ ******************************************************************************
+ * @attention
+ *
+ * <h2><center>&copy; Copyright (c) 2021 STMicroelectronics.
+ * All rights reserved.</center></h2>
+ *
+ * This software component is licensed by ST under Ultimate Liberty license
+ * SLA0044, the "License"; You may not use this file except in compliance with
+ * the License. You may obtain a copy of the License at:
+ *                             www.st.com/SLA0044
+ *
+ ******************************************************************************
+ */
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 //#include "cmsis_os.h"
 #include "fatfs.h"
-#include "usb_host.h"
 #include "usb_host.h"
 
 /* Private includes ----------------------------------------------------------*/
@@ -35,8 +34,6 @@
 #include "event_groups.h"
 
 #include "File_Handling_RTOS.h"
-
-
 
 /* USER CODE END Includes */
 
@@ -90,25 +87,238 @@ static void MX_USART2_UART_Init(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
-uint16_t ADC_VAL;
-int Corrente;
 
-xTaskHandle ADC_Task_Handler;
+/* uint16_t ADC_VAL;
+float Corrente;
+float Aceleracao; */
+
+
+//variaveis a serem salvas
 xTaskHandle Corrente_Task_Handler;
+xTaskHandle rotacao_Task_Handler;
+xTaskHandle acLinear_Task_Handler;
+xTaskHandle acAngular_Task_Handler;
+xTaskHandle cMagnetico_Task_Handler;
+xTaskHandle aTracao_Task_Handler;
+xTaskHandle aVelocidade_Task_Handler;
+xTaskHandle setpointVelocidade_Task_Handler;
+xTaskHandle RPY_Task_Handler;
+xTaskHandle GPS_Task_Handler;
+xTaskHandle gPosicao_task_Handler;
+xTaskHandle aPosicao_task_Handler;
+
+//task para salvar no sdcard
 xTaskHandle SDCARD_Task_Handler;
 
-xSemaphoreHandle Corrente_SEM;
+/* struct Dados
+{
+  char tipo[4];
+  float* valor;
+};
 
-void ADC_Task (void *argument);
-void Corrente_Task (void *argument);
-void SDCARD_Task (void *argument);
+typedef struct Dados Dados; */
+
+float corrente[40]; //q10 - 40
+float rotacao[4]; //q10 - 4
+float acLinear[3]; //q10 - 3
+float acAngular[3]; //q10 - 3
+float cMagnetico[3]; //q10 - 3
+float aTracao[40]; //q10 - 40
+float aVelocidade[4]; //q10 - 4
+float setpointVelocidade[4]; //q10 - 4
+float GPS[3]; //q100 - 3
+float gPosicao[12]; //q100 - 12
+float aPosicao[3]; //q100 - 3
+
+//queue10ms = 101
+
+/* xSemaphoreHandle Corrente_SEM;
+xSemaphoreHandle Aceleracao_SEM; */
+
+/* void Corrente_Task(void *argument)
+{
+  while (1)
+  {
+    if (xSemaphoreTake(Corrente_SEM, 2500) != pdTRUE)
+    {
+      HAL_UART_Transmit(&huart2, (uint8_t *)"Nao foi possivel receber o semaforo\n", 28, 100);
+    }
+
+    else
+    {
+      Dados_Corrente.valor = Corrente;
+    }
+  }
+} */
+
+void vSendData10ms (void *pvParameters)
+{
+  TickType_t xLastWakeTime = xTaskGetTickCount();
+  const float * const pvParameters_float = (const float *) pvParameters;
+
+  while (1)
+  {
+    vTaskDelayUntil(&xLastWakeTime, 10 / portTICK_PERIOD_MS);
+    xQueueSend(xQueue10ms, &pvParameters_float, 0);
+  }
+}
+
+void vSendData100ms (void *pvParameters)
+{
+  TickType_t xLastWakeTime = xTaskGetTickCount();
+  const float * const pvParameters_float = (const float *) pvParameters;
+
+  while (1)
+  {
+    vTaskDelayUntil(&xLastWakeTime, 100 / portTICK_PERIOD_MS);
+    xQueueSend(xQueue100ms, &pvParameters_float, 0);
+  }
+}
+
+void SDCARD_Task10ms(void *pvParameters)
+{
+  TickType_t xLastWakeTime = xTaskGetTickCount();
+  float *pvDados;
+
+  QueueHandle_t xQueueFull;
+
+  int32_t corrente_idx = 0;
+  int32_t rotacao_idx = 0;
+  int32_t acLinear_idx = 0;
+  int32_t acAngular_idx = 0;
+  int32_t cMagnetico_idx = 0;
+  int32_t aTracao_idx = 0;
+  int32_t aVelocidade_idx = 0;
+  int32_t setpointVelocidade_idx = 0;
+
+  while (1)
+  {
+    xQueueFull = (QueueHandle_t) xQueueSelectFromSet(xQueueSet, pdMS_TO_TICKS(10));
+    if(xQueueFull == xQueue10ms)
+    {
+      xQueueReceive(xQueueFull, &pvDados, 0);
+      int i = 0, last = 0;
+
+      Mount_SD("/");
+
+      for(;i<40;i++, corrente_idx++) sprintf(buffer, "%d;%f;\n", corrente_idx, pvDados[i]);
+      Update_File("CORRENTE.TXT", buffer);
+      last = i;
+
+      for(;i<last+4;i++, rotacao_idx++) sprintf(buffer, "%d;%f;\n", rotacao_idx, pvDados[i]);
+      Update_File("ROTACAO.TXT", buffer);
+      last = i;
+
+      for(;i<last+3;i++, acLinear_idx++) sprintf(buffer, "%d;%f;\n", acLinear_idx, pvDados[i]);
+      Update_File("ACELERACAO_LINEAR.TXT", buffer);
+      last = i;
+
+      for(;i<last+3;i++, acAngular_idx++) sprintf(buffer, "%d;%f;\n", acAngular_idx, pvDados[i]);
+      Update_File("ACELERACAO_ANGULAR.TXT", buffer);
+      last = i;
+
+      for(;i<last+3;i++, cMagnetico_idx++) sprintf(buffer, "%d;%f;\n", cMagnetico_idx, pvDados[i]);
+      Update_File("C_MAGNETICO.TXT", buffer);
+      last = i;
+
+      for(;i<last+40;i++, aTracao_idx++) sprintf(buffer, "%d;%f;\n", aTracao_idx, pvDados[i]);
+      Update_File("A_TRACAO.TXT", buffer);
+      last = i;
+
+      for(;i<last+4;i++, aVelocidade_idx++) sprintf(buffer, "%d;%f;\n", aVelocidade_idx, pvDados[i]);
+      Update_File("A_VELOCIDADE.TXT", buffer);
+      last = i;
+
+      for(;i<last+4;i++, setpointVelocidade_idx++) sprintf(buffer, "%d;%f;\n", setpointVelocidade_idx, pvDados[i]);
+      Update_File("SETPOINT_VELOCIDADE.TXT", buffer);
+      last = i;
+
+      vPortFree(buffer);
+      Unmount_SD("/");
+    }
+    if(xQueueFull==NULL);
+    vTaskDelayUntil(&xLastWakeTime, 10 / portTICK_PERIOD_MS);
+  }
+}
+
+void SDCARD_Task100ms(void *pvParameters)
+{
+  TickType_t xLastWakeTime = xTaskGetTickCount();
+  float *pvDados;
+
+  QueueHandle_t xQueueFull;
+
+  int32_t GPS_idx = 0;
+  int32_t gPosicao_idx = 0;
+  int32_t aPosicao_idx = 0;
+
+  while (1)
+  {
+    xQueueFull = (QueueHandle_t) xQueueSelectFromSet(xQueueSet, pdMS_TO_TICKS(10));
+    if(xQueueFull == xQueue100ms)
+    {
+      xQueueReceive(xQueueFull, &pvDados, 0);
+      int i = 0, last = 0;
+
+      Mount_SD("/");
+
+      for(;i<last+3;i++, GPS_idx++) sprintf(buffer, "%d;%f;\n", GPS_idx, pvDados[i]);
+      Update_File("GPS.TXT", buffer);
+      last = i;
+
+      for(;i<last+12;i++, gPosicao_idx++) sprintf(buffer, "%d;%f;\n", gPosicao_idx, pvDados[i]);
+      Update_File("G_POSICAO.TXT", buffer);
+      last = i;
+
+      for(;i<last+3;i++, aPosicao_idx++) sprintf(buffer, "%d;%f;\n", aPosicao_idx, pvDados[i]);
+      Update_File("A_POSICAO.TXT", buffer);
+
+      vPortFree(buffer);
+      Unmount_SD("/");
+    }
+    if(xQueueFull==NULL);
+    vTaskDelayUntil(&xLastWakeTime, 100 / portTICK_PERIOD_MS);
+  }
+}
+/* void SDCARD_Task(void *argument)
+{
+  int indx = 1;
+  while (1)
+  {
+    Dados *Dados_Recebidos = (struct Dados *)argument;
+    char *buffer = pvPortMalloc(50 * sizeof(char));
+    Mount_SD("/");
+    switch (Dados_Recebidos->tipo)
+    {
+    case 'c':
+      sprintf(buffer, "%d. Corrente = %f A\n", indx, Dados_Recebidos->valor);
+      Update_File("CORRENTE.TXT", buffer);
+      break;
+
+    case 'a':
+      sprintf(buffer, "%d. Aceleracao = %f A\n", indx, Dados_Recebidos->valor);
+      Update_File("Aceleracao.txt", buffer);
+      break;
+
+    default:
+      break;
+    }
+    vPortFree(buffer);
+    Unmount_SD("/");
+
+    indx++;
+
+    vTaskDelay(1000);
+  }
+} */
+
 
 /* USER CODE END 0 */
 
 /**
-  * @brief  The application entry point.
-  * @retval int
-  */
+ * @brief  The application entry point.
+ * @retval int
+ */
 int main(void)
 {
   /* USER CODE BEGIN 1 */
@@ -145,14 +355,37 @@ int main(void)
 
   Mount_SD("/");
   Format_SD();
-  Create_File("Corrente.txt");
+
+  Create_File("CORRENTE.TXT", "ID;CORRENTE;\n");
+  Create_File("ROTACAO.TXT", "ID;ROTACAO;\n");
+  Create_File("ACELERACAO_LINEAR.TXT", "ID;ACELERACAO_LINEAR;\n");
+  Create_File("ACELERACAO_ANGULAR.TXT", "ID;ACELERACAO_ANGULAR;\n");
+  Create_File("C_MAGNETICO.TXT", "ID;C_MAGNETICO;\n");
+  Create_File("A_TRACAO.TXT", "ID;A_TRACAO;\n");
+  Create_File("A_VELOCIDADE.TXT", "ID;A_VELOCIDADE;\n");
+  Create_File("SETPOINT_VELOCIDADE.TXT", "ID;SETPOINT_VELOCIDADE;\n");
+  Create_File("GPS.TXT", "ID;GPS;\n");
+  Create_File("G_POSICAO.TXT", "ID;G_POSICAO;\n");
+  Create_File("A_POSICAO.TXT", "ID;A_POSICAO;\n");
+  
   Unmount_SD("/");
 
-  Corrente_SEM = xSemaphoreCreateBinary();
+  /* Corrente_SEM = xSemaphoreCreateBinary();
+  Aceleracao_SEM = xSemaphoreCreateBinary(); */
+  xQueue10ms = xQueueCreate(101, sizeof(float));
+  xQueue100ms = xQueueCreate(18, sizeof(float));
 
-  xTaskCreate(Corrente_Task, "Corrente", 128, NULL, 1, &Corrente_Task_Handler);
-  xTaskCreate(ADC_Task, "ADC", 128, NULL, 1, &ADC_Task_Handler);
-  xTaskCreate(SDCARD_Task, "SD", 128, NULL, 1, &SDCARD_Task_Handler);
+  xQueueSet = xQueueCreateSet(2);
+
+  xQueueAddToSet(xQueue10ms, xQueueSet);
+  xQueueAddToSet(xQueue100ms, xQueueSet);
+
+  xTaskCreate(vSendData10ms, "queue 10ms", 128, NULL, 1, NULL);
+  xTaskCreate(vSendData100ms, "queue 100ms", 128, NULL, 1, NULL);
+
+  xTaskCreate(SDCARD_Task10ms, "SDCARD Save 10ms", 128, NULL, 2, NULL);
+  xTaskCreate(SDCARD_Task100ms, "SDCARD Save 100ms", 128, NULL, 2, NULL);
+
 
   HAL_TIM__Base_Start(&htim7);
   HAL_TIM__Base_Start_IT(&htim1);
@@ -160,8 +393,6 @@ int main(void)
   vTaskStartScheduler();
 
   /* USER CODE END 2 */
-
-
 
   /* We should never get here as control is now taken by the scheduler */
   /* Infinite loop */
@@ -176,21 +407,21 @@ int main(void)
 }
 
 /**
-  * @brief System Clock Configuration
-  * @retval None
-  */
+ * @brief System Clock Configuration
+ * @retval None
+ */
 void SystemClock_Config(void)
 {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
 
   /** Configure the main internal regulator output voltage
-  */
+   */
   __HAL_RCC_PWR_CLK_ENABLE();
   __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
   /** Initializes the RCC Oscillators according to the specified parameters
-  * in the RCC_OscInitTypeDef structure.
-  */
+   * in the RCC_OscInitTypeDef structure.
+   */
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
   RCC_OscInitStruct.HSEState = RCC_HSE_ON;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
@@ -204,9 +435,8 @@ void SystemClock_Config(void)
     Error_Handler();
   }
   /** Initializes the CPU, AHB and APB buses clocks
-  */
-  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
-                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
+   */
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK | RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV4;
@@ -219,10 +449,10 @@ void SystemClock_Config(void)
 }
 
 /**
-  * @brief ADC1 Initialization Function
-  * @param None
-  * @retval None
-  */
+ * @brief ADC1 Initialization Function
+ * @param None
+ * @retval None
+ */
 static void MX_ADC1_Init(void)
 {
 
@@ -236,7 +466,7 @@ static void MX_ADC1_Init(void)
 
   /* USER CODE END ADC1_Init 1 */
   /** Configure the global features of the ADC (Clock, Resolution, Data Alignment and number of conversion)
-  */
+   */
   hadc1.Instance = ADC1;
   hadc1.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV4;
   hadc1.Init.Resolution = ADC_RESOLUTION_12B;
@@ -254,7 +484,7 @@ static void MX_ADC1_Init(void)
     Error_Handler();
   }
   /** Configure for the selected ADC regular channel its corresponding rank in the sequencer and its sample time.
-  */
+   */
   sConfig.Channel = ADC_CHANNEL_1;
   sConfig.Rank = 1;
   sConfig.SamplingTime = ADC_SAMPLETIME_3CYCLES;
@@ -265,14 +495,13 @@ static void MX_ADC1_Init(void)
   /* USER CODE BEGIN ADC1_Init 2 */
 
   /* USER CODE END ADC1_Init 2 */
-
 }
 
 /**
-  * @brief I2C1 Initialization Function
-  * @param None
-  * @retval None
-  */
+ * @brief I2C1 Initialization Function
+ * @param None
+ * @retval None
+ */
 static void MX_I2C1_Init(void)
 {
 
@@ -299,14 +528,13 @@ static void MX_I2C1_Init(void)
   /* USER CODE BEGIN I2C1_Init 2 */
 
   /* USER CODE END I2C1_Init 2 */
-
 }
 
 /**
-  * @brief I2S3 Initialization Function
-  * @param None
-  * @retval None
-  */
+ * @brief I2S3 Initialization Function
+ * @param None
+ * @retval None
+ */
 static void MX_I2S3_Init(void)
 {
 
@@ -333,14 +561,13 @@ static void MX_I2S3_Init(void)
   /* USER CODE BEGIN I2S3_Init 2 */
 
   /* USER CODE END I2S3_Init 2 */
-
 }
 
 /**
-  * @brief SPI1 Initialization Function
-  * @param None
-  * @retval None
-  */
+ * @brief SPI1 Initialization Function
+ * @param None
+ * @retval None
+ */
 static void MX_SPI1_Init(void)
 {
 
@@ -371,14 +598,13 @@ static void MX_SPI1_Init(void)
   /* USER CODE BEGIN SPI1_Init 2 */
 
   /* USER CODE END SPI1_Init 2 */
-
 }
 
 /**
-  * @brief TIM1 Initialization Function
-  * @param None
-  * @retval None
-  */
+ * @brief TIM1 Initialization Function
+ * @param None
+ * @retval None
+ */
 static void MX_TIM1_Init(void)
 {
 
@@ -393,9 +619,9 @@ static void MX_TIM1_Init(void)
 
   /* USER CODE END TIM1_Init 1 */
   htim1.Instance = TIM1;
-  htim1.Init.Prescaler = 60000-1;
+  htim1.Init.Prescaler = 60000 - 1;
   htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim1.Init.Period = 2000-1;
+  htim1.Init.Period = 2000 - 1;
   htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim1.Init.RepetitionCounter = 0;
   htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
@@ -417,14 +643,13 @@ static void MX_TIM1_Init(void)
   /* USER CODE BEGIN TIM1_Init 2 */
 
   /* USER CODE END TIM1_Init 2 */
-
 }
 
 /**
-  * @brief TIM7 Initialization Function
-  * @param None
-  * @retval None
-  */
+ * @brief TIM7 Initialization Function
+ * @param None
+ * @retval None
+ */
 static void MX_TIM7_Init(void)
 {
 
@@ -438,7 +663,7 @@ static void MX_TIM7_Init(void)
 
   /* USER CODE END TIM7_Init 1 */
   htim7.Instance = TIM7;
-  htim7.Init.Prescaler = 168-1;
+  htim7.Init.Prescaler = 168 - 1;
   htim7.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim7.Init.Period = 65535;
   htim7.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
@@ -455,14 +680,13 @@ static void MX_TIM7_Init(void)
   /* USER CODE BEGIN TIM7_Init 2 */
 
   /* USER CODE END TIM7_Init 2 */
-
 }
 
 /**
-  * @brief USART2 Initialization Function
-  * @param None
-  * @retval None
-  */
+ * @brief USART2 Initialization Function
+ * @param None
+ * @retval None
+ */
 static void MX_USART2_UART_Init(void)
 {
 
@@ -488,14 +712,13 @@ static void MX_USART2_UART_Init(void)
   /* USER CODE BEGIN USART2_Init 2 */
 
   /* USER CODE END USART2_Init 2 */
-
 }
 
 /**
-  * @brief GPIO Initialization Function
-  * @param None
-  * @retval None
-  */
+ * @brief GPIO Initialization Function
+ * @param None
+ * @retval None
+ */
 static void MX_GPIO_Init(void)
 {
   GPIO_InitTypeDef GPIO_InitStruct = {0};
@@ -515,8 +738,7 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(OTG_FS_PowerSwitchOn_GPIO_Port, OTG_FS_PowerSwitchOn_Pin, GPIO_PIN_SET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOD, LD4_Pin|LD3_Pin|LD5_Pin|LD6_Pin
-                          |Audio_RST_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOD, LD4_Pin | LD3_Pin | LD5_Pin | LD6_Pin | Audio_RST_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_RESET);
@@ -565,8 +787,7 @@ static void MX_GPIO_Init(void)
 
   /*Configure GPIO pins : LD4_Pin LD3_Pin LD5_Pin LD6_Pin
                            Audio_RST_Pin */
-  GPIO_InitStruct.Pin = LD4_Pin|LD3_Pin|LD5_Pin|LD6_Pin
-                          |Audio_RST_Pin;
+  GPIO_InitStruct.Pin = LD4_Pin | LD3_Pin | LD5_Pin | LD6_Pin | Audio_RST_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
@@ -590,45 +811,44 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Mode = GPIO_MODE_EVT_RISING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(MEMS_INT2_GPIO_Port, &GPIO_InitStruct);
-
 }
 
 /* USER CODE BEGIN 4 */
 
 /* USER CODE END 4 */
 
-
 /**
-  * @brief  Period elapsed callback in non blocking mode
-  * @note   This function is called  when TIM6 interrupt took place, inside
-  * HAL_TIM_IRQHandler(). It makes a direct call to HAL_IncTick() to increment
-  * a global variable "uwTick" used as application time base.
-  * @param  htim : TIM handle
-  * @retval None
-  */
+ * @brief  Period elapsed callback in non blocking mode
+ * @note   This function is called  when TIM6 interrupt took place, inside
+ * HAL_TIM_IRQHandler(). It makes a direct call to HAL_IncTick() to increment
+ * a global variable "uwTick" used as application time base.
+ * @param  htim : TIM handle
+ * @retval None
+ */
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
   /* USER CODE BEGIN Callback 0 */
-	if (htim->Instance == TIM1)
-		{
-			// release the semaphore here
-			 /* The xHigherPriorityTaskWoken parameter must be initialized to pdFALSE as
-			 it will get set to pdTRUE inside the interrupt safe API function if a
-			 context switch is required. */
-			BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+  if (htim->Instance == TIM1)
+  {
+    // release the semaphore here
+    /* The xHigherPriorityTaskWoken parameter must be initialized to pdFALSE as
+    it will get set to pdTRUE inside the interrupt safe API function if a
+    context switch is required. */
+    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
 
-			xSemaphoreGiveFromISR(Corrente_SEM, &xHigherPriorityTaskWoken);  // ISR SAFE VERSION
+    xSemaphoreGiveFromISR(Corrente_SEM, &xHigherPriorityTaskWoken); // ISR SAFE VERSION
 
-			/* Pass the xHigherPriorityTaskWoken value into portEND_SWITCHING_ISR(). If
-			 xHigherPriorityTaskWoken was set to pdTRUE inside xSemaphoreGiveFromISR()
-			 then calling portEND_SWITCHING_ISR() will request a context switch. If
-			 xHigherPriorityTaskWoken is still pdFALSE then calling
-			 portEND_SWITCHING_ISR() will have no effect */
+    /* Pass the xHigherPriorityTaskWoken value into portEND_SWITCHING_ISR(). If
+     xHigherPriorityTaskWoken was set to pdTRUE inside xSemaphoreGiveFromISR()
+     then calling portEND_SWITCHING_ISR() will request a context switch. If
+     xHigherPriorityTaskWoken is still pdFALSE then calling
+     portEND_SWITCHING_ISR() will have no effect */
 
-			portEND_SWITCHING_ISR( xHigherPriorityTaskWoken );
-		}
+    portEND_SWITCHING_ISR(xHigherPriorityTaskWoken);
+  }
   /* USER CODE END Callback 0 */
-  if (htim->Instance == TIM6) {
+  if (htim->Instance == TIM6)
+  {
     HAL_IncTick();
   }
   /* USER CODE BEGIN Callback 1 */
@@ -637,9 +857,9 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 }
 
 /**
-  * @brief  This function is executed in case of error occurrence.
-  * @retval None
-  */
+ * @brief  This function is executed in case of error occurrence.
+ * @retval None
+ */
 void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
@@ -651,14 +871,14 @@ void Error_Handler(void)
   /* USER CODE END Error_Handler_Debug */
 }
 
-#ifdef  USE_FULL_ASSERT
+#ifdef USE_FULL_ASSERT
 /**
-  * @brief  Reports the name of the source file and the source line number
-  *         where the assert_param error has occurred.
-  * @param  file: pointer to the source file name
-  * @param  line: assert_param error line source number
-  * @retval None
-  */
+ * @brief  Reports the name of the source file and the source line number
+ *         where the assert_param error has occurred.
+ * @param  file: pointer to the source file name
+ * @param  line: assert_param error line source number
+ * @retval None
+ */
 void assert_failed(uint8_t *file, uint32_t line)
 {
   /* USER CODE BEGIN 6 */
