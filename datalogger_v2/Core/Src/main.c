@@ -87,9 +87,11 @@ static void MX_USART2_UART_Init(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
+
 /* uint16_t ADC_VAL;
 float Corrente;
 float Aceleracao; */
+
 
 //variaveis a serem salvas
 xTaskHandle Corrente_Task_Handler;
@@ -310,6 +312,7 @@ void SDCARD_Task100ms(void *pvParameters)
   }
 } */
 
+
 /* USER CODE END 0 */
 
 /**
@@ -383,8 +386,9 @@ int main(void)
   xTaskCreate(SDCARD_Task10ms, "SDCARD Save 10ms", 128, NULL, 2, NULL);
   xTaskCreate(SDCARD_Task100ms, "SDCARD Save 100ms", 128, NULL, 2, NULL);
 
-  HAL_TIM_Base_Start(&htim7);
-  HAL_TIM_Base_Start_IT(&htim1);
+
+  HAL_TIM__Base_Start(&htim7);
+  HAL_TIM__Base_Start_IT(&htim1);
 
   vTaskStartScheduler();
 
