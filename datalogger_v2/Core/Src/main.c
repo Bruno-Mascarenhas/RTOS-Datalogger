@@ -22,7 +22,6 @@
 //#include "cmsis_os.h"
 #include "fatfs.h"
 #include "usb_host.h"
-#include "usb_host.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -88,42 +87,53 @@ static void MX_USART2_UART_Init(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
-uint16_t ADC_VAL;
+/* uint16_t ADC_VAL;
 float Corrente;
-float Aceleracao;
+float Aceleracao; */
 
-xTaskHandle ADC_Task_Handler;
+//variaveis a serem salvas
 xTaskHandle Corrente_Task_Handler;
-xTaskHandle Aceleracao_Task_Handler;
+xTaskHandle rotacao_Task_Handler;
+xTaskHandle acLinear_Task_Handler;
+xTaskHandle acAngular_Task_Handler;
+xTaskHandle cMagnetico_Task_Handler;
+xTaskHandle aTracao_Task_Handler;
+xTaskHandle aVelocidade_Task_Handler;
+xTaskHandle setpointVelocidade_Task_Handler;
+xTaskHandle RPY_Task_Handler;
+xTaskHandle GPS_Task_Handler;
+xTaskHandle gPosicao_task_Handler;
+xTaskHandle aPosicao_task_Handler;
+
+//task para salvar no sdcard
 xTaskHandle SDCARD_Task_Handler;
 
-struct Dados
+/* struct Dados
 {
-  char tipo;
-  float valor;
+  char tipo[4];
+  float* valor;
 };
 
-typedef struct Dados Dados;
+typedef struct Dados Dados; */
 
-Dados Dados_Corrente;
-Dados Dados_Aceleracao;
+float corrente[40]; //q10 - 40
+float rotacao[4]; //q10 - 4
+float acLinear[3]; //q10 - 3
+float acAngular[3]; //q10 - 3
+float cMagnetico[3]; //q10 - 3
+float aTracao[40]; //q10 - 40
+float aVelocidade[4]; //q10 - 4
+float setpointVelocidade[4]; //q10 - 4
+float GPS[3]; //q100 - 3
+float gPosicao[12]; //q100 - 12
+float aPosicao[3]; //q100 - 3
 
-xSemaphoreHandle Corrente_SEM;
-xSemaphoreHandle Aceleracao_SEM;
+//queue10ms = 101
 
-void ADC_Task(void *argument)
-{
-  while (1)
-  {
-    HAL_ADC_Start(&hadc1);
-    HAL_ADC_PollForConversion(&hadc1, 10);
-    ADC_VAL = HAL_ADC_GetValue(&hadc1);
-    HAL_ADC_Stop(&hadc1);
+/* xSemaphoreHandle Corrente_SEM;
+xSemaphoreHandle Aceleracao_SEM; */
 
-    vTaskDelay(500);
-  }
-}
-void Corrente_Task(void *argument)
+/* void Corrente_Task(void *argument)
 {
   while (1)
   {
@@ -137,24 +147,138 @@ void Corrente_Task(void *argument)
       Dados_Corrente.valor = Corrente;
     }
   }
-}
+} */
 
-void Aceleracao_Task(void *argument)
+void vSendData10ms (void *pvParameters)
 {
+  TickType_t xLastWakeTime = xTaskGetTickCount();
+  const float * const pvParameters_float = (const float *) pvParameters;
+
   while (1)
   {
-    if (xSemaphoreTake(Aceleracao_SEM, 2500) != pdTRUE)
-    {
-      HAL_UART_Transmit(&huart2, (uint8_t *)"Nao foi possivel receber o semaforo\n", 28, 100);
-    }
-
-    else
-    {
-      Dados_Aceleracao.valor = Aceleracao;
-    }
+    vTaskDelayUntil(&xLastWakeTime, 10 / portTICK_PERIOD_MS);
+    xQueueSend(xQueue10ms, &pvParameters_float, 0);
   }
 }
-void SDCARD_Task(void *argument)
+
+void vSendData100ms (void *pvParameters)
+{
+  TickType_t xLastWakeTime = xTaskGetTickCount();
+  const float * const pvParameters_float = (const float *) pvParameters;
+
+  while (1)
+  {
+    vTaskDelayUntil(&xLastWakeTime, 100 / portTICK_PERIOD_MS);
+    xQueueSend(xQueue100ms, &pvParameters_float, 0);
+  }
+}
+
+void SDCARD_Task10ms(void *pvParameters)
+{
+  TickType_t xLastWakeTime = xTaskGetTickCount();
+  float *pvDados;
+
+  QueueHandle_t xQueueFull;
+
+  int32_t corrente_idx = 0;
+  int32_t rotacao_idx = 0;
+  int32_t acLinear_idx = 0;
+  int32_t acAngular_idx = 0;
+  int32_t cMagnetico_idx = 0;
+  int32_t aTracao_idx = 0;
+  int32_t aVelocidade_idx = 0;
+  int32_t setpointVelocidade_idx = 0;
+
+  while (1)
+  {
+    xQueueFull = (QueueHandle_t) xQueueSelectFromSet(xQueueSet, pdMS_TO_TICKS(10));
+    if(xQueueFull == xQueue10ms)
+    {
+      xQueueReceive(xQueueFull, &pvDados, 0);
+      int i = 0, last = 0;
+
+      Mount_SD("/");
+
+      for(;i<40;i++, corrente_idx++) sprintf(buffer, "%d;%f;\n", corrente_idx, pvDados[i]);
+      Update_File("CORRENTE.TXT", buffer);
+      last = i;
+
+      for(;i<last+4;i++, rotacao_idx++) sprintf(buffer, "%d;%f;\n", rotacao_idx, pvDados[i]);
+      Update_File("ROTACAO.TXT", buffer);
+      last = i;
+
+      for(;i<last+3;i++, acLinear_idx++) sprintf(buffer, "%d;%f;\n", acLinear_idx, pvDados[i]);
+      Update_File("ACELERACAO_LINEAR.TXT", buffer);
+      last = i;
+
+      for(;i<last+3;i++, acAngular_idx++) sprintf(buffer, "%d;%f;\n", acAngular_idx, pvDados[i]);
+      Update_File("ACELERACAO_ANGULAR.TXT", buffer);
+      last = i;
+
+      for(;i<last+3;i++, cMagnetico_idx++) sprintf(buffer, "%d;%f;\n", cMagnetico_idx, pvDados[i]);
+      Update_File("C_MAGNETICO.TXT", buffer);
+      last = i;
+
+      for(;i<last+40;i++, aTracao_idx++) sprintf(buffer, "%d;%f;\n", aTracao_idx, pvDados[i]);
+      Update_File("A_TRACAO.TXT", buffer);
+      last = i;
+
+      for(;i<last+4;i++, aVelocidade_idx++) sprintf(buffer, "%d;%f;\n", aVelocidade_idx, pvDados[i]);
+      Update_File("A_VELOCIDADE.TXT", buffer);
+      last = i;
+
+      for(;i<last+4;i++, setpointVelocidade_idx++) sprintf(buffer, "%d;%f;\n", setpointVelocidade_idx, pvDados[i]);
+      Update_File("SETPOINT_VELOCIDADE.TXT", buffer);
+      last = i;
+
+      vPortFree(buffer);
+      Unmount_SD("/");
+    }
+    if(xQueueFull==NULL);
+    vTaskDelayUntil(&xLastWakeTime, 10 / portTICK_PERIOD_MS);
+  }
+}
+
+void SDCARD_Task100ms(void *pvParameters)
+{
+  TickType_t xLastWakeTime = xTaskGetTickCount();
+  float *pvDados;
+
+  QueueHandle_t xQueueFull;
+
+  int32_t GPS_idx = 0;
+  int32_t gPosicao_idx = 0;
+  int32_t aPosicao_idx = 0;
+
+  while (1)
+  {
+    xQueueFull = (QueueHandle_t) xQueueSelectFromSet(xQueueSet, pdMS_TO_TICKS(10));
+    if(xQueueFull == xQueue100ms)
+    {
+      xQueueReceive(xQueueFull, &pvDados, 0);
+      int i = 0, last = 0;
+
+      Mount_SD("/");
+
+      for(;i<last+3;i++, GPS_idx++) sprintf(buffer, "%d;%f;\n", GPS_idx, pvDados[i]);
+      Update_File("GPS.TXT", buffer);
+      last = i;
+
+      for(;i<last+12;i++, gPosicao_idx++) sprintf(buffer, "%d;%f;\n", gPosicao_idx, pvDados[i]);
+      Update_File("G_POSICAO.TXT", buffer);
+      last = i;
+
+      for(;i<last+3;i++, aPosicao_idx++) sprintf(buffer, "%d;%f;\n", aPosicao_idx, pvDados[i]);
+      Update_File("A_POSICAO.TXT", buffer);
+
+      vPortFree(buffer);
+      Unmount_SD("/");
+    }
+    if(xQueueFull==NULL);
+    vTaskDelayUntil(&xLastWakeTime, 100 / portTICK_PERIOD_MS);
+  }
+}
+/* void SDCARD_Task(void *argument)
 {
   int indx = 1;
   while (1)
@@ -184,7 +308,7 @@ void SDCARD_Task(void *argument)
 
     vTaskDelay(1000);
   }
-}
+} */
 
 /* USER CODE END 0 */
 
@@ -228,22 +352,36 @@ int main(void)
 
   Mount_SD("/");
   Format_SD();
-  Create_File("Corrente.txt");
-  Create_File("Aceleracao.txt");
+
+  Create_File("CORRENTE.TXT", "ID;CORRENTE;\n");
+  Create_File("ROTACAO.TXT", "ID;ROTACAO;\n");
+  Create_File("ACELERACAO_LINEAR.TXT", "ID;ACELERACAO_LINEAR;\n");
+  Create_File("ACELERACAO_ANGULAR.TXT", "ID;ACELERACAO_ANGULAR;\n");
+  Create_File("C_MAGNETICO.TXT", "ID;C_MAGNETICO;\n");
+  Create_File("A_TRACAO.TXT", "ID;A_TRACAO;\n");
+  Create_File("A_VELOCIDADE.TXT", "ID;A_VELOCIDADE;\n");
+  Create_File("SETPOINT_VELOCIDADE.TXT", "ID;SETPOINT_VELOCIDADE;\n");
+  Create_File("GPS.TXT", "ID;GPS;\n");
+  Create_File("G_POSICAO.TXT", "ID;G_POSICAO;\n");
+  Create_File("A_POSICAO.TXT", "ID;A_POSICAO;\n");
+  
   Unmount_SD("/");
 
-  Corrente_SEM = xSemaphoreCreateBinary();
-  Aceleracao_SEM = xSemaphoreCreateBinary();
+  /* Corrente_SEM = xSemaphoreCreateBinary();
+  Aceleracao_SEM = xSemaphoreCreateBinary(); */
+  xQueue10ms = xQueueCreate(101, sizeof(float));
+  xQueue100ms = xQueueCreate(18, sizeof(float));
 
-  Dados_Aceleracao.tipo = 'a';
-  Dados_Corrente.tipo = 'c';
+  xQueueSet = xQueueCreateSet(2);
 
-  xTaskCreate(Corrente_Task, "Corrente", 128, NULL, 1, &Corrente_Task_Handler);
-  xTaskCreate(Aceleracao_Task, "Aceleracao", 128, NULL, 2, &Aceleracao_Task_Handler);
-  xTaskCreate(ADC_Task, "ADC", 128, NULL, 3, &ADC_Task_Handler);
+  xQueueAddToSet(xQueue10ms, xQueueSet);
+  xQueueAddToSet(xQueue100ms, xQueueSet);
 
-  xTaskCreate(SDCARD_Task, "Corrente_SD", 128, &Dados_Corrente, 1, &SDCARD_Task_Handler);
-  xTaskCreate(SDCARD_Task, "Aceleracao_SD", 128, &Dados_Aceleracao, 1, &SDCARD_Task_Handler);
+  xTaskCreate(vSendData10ms, "queue 10ms", 128, NULL, 1, NULL);
+  xTaskCreate(vSendData100ms, "queue 100ms", 128, NULL, 1, NULL);
+
+  xTaskCreate(SDCARD_Task10ms, "SDCARD Save 10ms", 128, NULL, 2, NULL);
+  xTaskCreate(SDCARD_Task100ms, "SDCARD Save 100ms", 128, NULL, 2, NULL);
 
   HAL_TIM_Base_Start(&htim7);
   HAL_TIM_Base_Start_IT(&htim1);
