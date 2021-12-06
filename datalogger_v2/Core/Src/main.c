@@ -381,10 +381,10 @@ int main(void)
   xQueueAddToSet(xQueue100ms, xQueueSet);
 
   xTaskCreate(vSendData10ms, "queue 10ms", 128, NULL, 1, NULL);
-  xTaskCreate(vSendData100ms, "queue 100ms", 128, NULL, 1, NULL);
+  xTaskCreate(vSendData100ms, "queue 100ms", 128, NULL, 2, NULL);
 
-  xTaskCreate(SDCARD_Task10ms, "SDCARD Save 10ms", 128, NULL, 2, NULL);
-  xTaskCreate(SDCARD_Task100ms, "SDCARD Save 100ms", 128, NULL, 2, NULL);
+  xTaskCreate(SDCARD_Task10ms, "SDCARD Save 10ms", 128, NULL, 3, NULL);
+  xTaskCreate(SDCARD_Task100ms, "SDCARD Save 100ms", 128, NULL, 4, NULL);
 
 
   HAL_TIM__Base_Start(&htim7);
