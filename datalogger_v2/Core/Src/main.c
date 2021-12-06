@@ -200,36 +200,37 @@ void SDCARD_Task10ms(void *pvParameters)
       int i = 0, last = 0;
 
       Mount_SD("/");
+      char* buffer = pvPortMalloc(40*sizeof(char));
 
-      for(;i<40;i++, corrente_idx++) sprintf(buffer, "%d;%f;\n", corrente_idx, pvDados[i]);
+      for(;i<40;i++, corrente_idx++) sprintf(buffer, "%d;%.5f;\n", corrente_idx, pvDados[i]);
       Update_File("CORRENTE.TXT", buffer);
       last = i;
 
-      for(;i<last+4;i++, rotacao_idx++) sprintf(buffer, "%d;%f;\n", rotacao_idx, pvDados[i]);
+      for(;i<last+4;i++, rotacao_idx++) sprintf(buffer, "%d;%.5f;\n", rotacao_idx, pvDados[i]);
       Update_File("ROTACAO.TXT", buffer);
       last = i;
 
-      for(;i<last+3;i++, acLinear_idx++) sprintf(buffer, "%d;%f;\n", acLinear_idx, pvDados[i]);
+      for(;i<last+3;i++, acLinear_idx++) sprintf(buffer, "%d;%.5f;\n", acLinear_idx, pvDados[i]);
       Update_File("ACELERACAO_LINEAR.TXT", buffer);
       last = i;
 
-      for(;i<last+3;i++, acAngular_idx++) sprintf(buffer, "%d;%f;\n", acAngular_idx, pvDados[i]);
+      for(;i<last+3;i++, acAngular_idx++) sprintf(buffer, "%d;%.5f;\n", acAngular_idx, pvDados[i]);
       Update_File("ACELERACAO_ANGULAR.TXT", buffer);
       last = i;
 
-      for(;i<last+3;i++, cMagnetico_idx++) sprintf(buffer, "%d;%f;\n", cMagnetico_idx, pvDados[i]);
+      for(;i<last+3;i++, cMagnetico_idx++) sprintf(buffer, "%d;%.5f;\n", cMagnetico_idx, pvDados[i]);
       Update_File("C_MAGNETICO.TXT", buffer);
       last = i;
 
-      for(;i<last+40;i++, aTracao_idx++) sprintf(buffer, "%d;%f;\n", aTracao_idx, pvDados[i]);
+      for(;i<last+40;i++, aTracao_idx++) sprintf(buffer, "%d;%.5f;\n", aTracao_idx, pvDados[i]);
       Update_File("A_TRACAO.TXT", buffer);
       last = i;
 
-      for(;i<last+4;i++, aVelocidade_idx++) sprintf(buffer, "%d;%f;\n", aVelocidade_idx, pvDados[i]);
+      for(;i<last+4;i++, aVelocidade_idx++) sprintf(buffer, "%d;%.5f;\n", aVelocidade_idx, pvDados[i]);
       Update_File("A_VELOCIDADE.TXT", buffer);
       last = i;
 
-      for(;i<last+4;i++, setpointVelocidade_idx++) sprintf(buffer, "%d;%f;\n", setpointVelocidade_idx, pvDados[i]);
+      for(;i<last+4;i++, setpointVelocidade_idx++) sprintf(buffer, "%d;%.5f;\n", setpointVelocidade_idx, pvDados[i]);
       Update_File("SETPOINT_VELOCIDADE.TXT", buffer);
       last = i;
 
@@ -261,6 +262,7 @@ void SDCARD_Task100ms(void *pvParameters)
       int i = 0, last = 0;
 
       Mount_SD("/");
+      char* buffer = pvPortMalloc(40*sizeof(char));
 
       for(;i<last+3;i++, GPS_idx++) sprintf(buffer, "%d;%f;\n", GPS_idx, pvDados[i]);
       Update_File("GPS.TXT", buffer);
